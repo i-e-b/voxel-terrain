@@ -8,6 +8,8 @@ MIN_PITCH = 100
 
 VIEW_DISTANCE = 700 -- how far to draw. More is slower but you can see further
 
+local mapIndex = 1
+local ctrlLock = 0
 depth = 400 -- steepness of slopes. Lower numbers = taller mountains
 
 camera = { -- init player camera
@@ -142,8 +144,13 @@ function love.update(dt)
 	if love.keyboard.isDown("down") and camera.v > MAX_PITCH then
 		camera.v = camera.v - 2
 	end
-	if love.keyboard.isDown("return") then
-		loadMap(love.math.random(1,4))
+	if love.keyboard.isDown("return") and ctrlLock <1 then
+		mapIndex = mapIndex + 1
+		if (mapIndex > 4) then mapIndex = 1 end
+		loadMap(mapIndex)
+		ctrlLock = 1
+	else
+		ctrlLock = 0
 	end
 end
 
@@ -177,7 +184,7 @@ function love.draw()
 	--love.graphics.draw(hud, 0, 0)
 
 	love.graphics.setColor(0, 120, 120)
-	love.graphics.print("FPS: "..tostring(love.timer.getFPS()).."\n"..
+	love.graphics.print("Map: "..mapIndex.." FPS: "..tostring(love.timer.getFPS()).."\n"..
 	"X: "..tostring(camera.x).."\n"..
 	"Y: "..tostring(camera.y), 10, 10)
 	love.graphics.setColor(255, 255, 255)
