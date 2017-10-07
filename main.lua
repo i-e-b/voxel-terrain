@@ -39,7 +39,8 @@ function rayCast(line, x1, y1, x2, y2, d)
 
 	local ymin = height -- last place we ended drawing a vertical line
 										  -- also the highest thing we've drawn to prevent over-paint (0 is max height)
-
+	local z3 = ymin+1     -- projected Z height of point under consideration
+	local data, h
 	-- we draw from near to far
 	for i = 1,VIEW_DISTANCE do
 		-- step to next position, wrapped for out-of-bounds
@@ -47,13 +48,13 @@ function rayCast(line, x1, y1, x2, y2, d)
 		y1 = (y1 + dy) % mapHeight
 
 		-- get height
-		local data = map[math.floor(x1)][math.floor(y1)]
+		data = map[math.floor(x1)][math.floor(y1)]
 		if (data == nil) then data = 0 end
-		local h = camera.height - bit.band(data, 0x000000FF)
+		h = camera.height - bit.band(data, 0x000000FF)
 
 		-- perspective calculation where d is the correction parameter
 		persp = persp + dp
-		local z3 = math.floor(h / persp - camera.v)
+		z3 = math.floor(h / persp - camera.v)
 
 		if (z3 < ymin) then -- this position is visible (if you wanted to mark visible/invisible positions you could do it here)
 			-- write verical strip, limited to buffer bounds
