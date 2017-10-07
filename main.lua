@@ -4,7 +4,7 @@
 MAX_HEIGHT = 300
 MIN_HEIGHT = 10
 MAX_PITCH = -200
-MIN_PITCH = 20
+MIN_PITCH = 100
 
 depth = 400
 
@@ -16,12 +16,14 @@ camera = { -- init player camera
 	v = -100
 }
 
+local mapWidth
+local mapHeight
+local height
+
 function rayCast(line, x1, y1, x2, y2, d)
 	-- x1, y1, x2, y2 are the start and end points on map for ray
 	local dx = x2 - x1
 	local dy = y2 - y1
-
-	local height = imageData:getWidth()
 
 	-- distance between start and end point
 	local r = math.floor(math.sqrt(dx * dx + dy * dy))
@@ -39,9 +41,9 @@ function rayCast(line, x1, y1, x2, y2, d)
 		y1 = y1 + dy
 		-- mirror/wrap our coordinates in case we're oob
 		if x1 < 0 then x1 = -x1 end
-		if x1 >= mapData:getWidth() then x1 = x1 - mapData:getWidth() end
-		if y1 < 0 then y1 = y1 + (1 + math.floor(-y1 / mapData:getHeight())) * mapData:getHeight() end
-		if y1 >= mapData:getHeight() then y1 = y1 - mapData:getHeight() end
+		if x1 >= mapWidth then x1 = x1 - mapWidth end
+		if y1 < 0 then y1 = y1 + (1 + math.floor(-y1 / mapHeight)) * mapHeight end
+		if y1 >= mapHeight then y1 = y1 - mapHeight end
 
 		-- get height and color
 		local data = map[math.floor(x1)][math.floor(y1)]
@@ -61,7 +63,8 @@ function rayCast(line, x1, y1, x2, y2, d)
 		if z3 < height - 1 and ymin < height - 1 then
 			for k = z3,ymin do
 				imageData:setPixel(k, line, r, g, b, 255)
-			end
+				imageData:setPixel(k, line+1, r, g, b, 255)
+		  end
 		end
 
 		if ymin > z3 then
@@ -85,6 +88,9 @@ function loadMap(index)
 			map[x][y] = bit.bor(bit.lshift(r, 24), bit.bor(bit.lshift(g, 16), bit.bor(bit.lshift(b, 8), h)))
 		end
 	end
+    mapWidth = mapData:getWidth()
+    mapHeight = mapData:getHeight()
+    height = imageData:getWidth()
 end
 
 function love.load()
@@ -137,18 +143,18 @@ function love.update(dt)
 end
 
 function love.draw()
-	love.graphics.clear(133, 183, 214, 0)
+	--love.graphics.clear(133, 183, 214, 0)
 
 	-- copy the sky into the terrain image buffer
 	imageData:paste(sky, 0, 0, 0, 0, sky:getWidth(), sky:getHeight())
-	imageData:paste(sky, 0, sky:getHeight(), 0, 0, sky:getWidth(), sky:getHeight())
+	--imageData:paste(sky, 0, sky:getHeight(), 0, 0, sky:getWidth(), sky:getHeight())
 
 	-- draw terrain
 	local sinAngle = math.sin(camera.angle)
 	local cosAngle = math.cos(camera.angle)
 
 	local y3d = -depth * 1.5
-	for i = 0,imageData:getHeight() - 1 do
+	for i = 0,imageData:getHeight() - 2,2 do
 		local x3d = (i - imageData:getHeight() / 2) * 1.5 * 1.5
 
 		local rotX =  cosAngle * x3d + sinAngle * y3d
@@ -156,7 +162,7 @@ function love.draw()
 
 		rayCast(i, camera.x, camera.y, camera.x + rotX, camera.y + rotY, y3d / math.sqrt(x3d * x3d + y3d * y3d))
 	end
-	
+
 	if not bufferImage then bufferImage = love.graphics.newImage(imageData)
 	else bufferImage:refresh() end
 
@@ -165,9 +171,9 @@ function love.draw()
 		-(love.graphics.getWidth() / bufferImage:getHeight()))
 
 	-- draw hud and altimeter
-	love.graphics.draw(hud, 0, 0)
+	--love.graphics.draw(hud, 0, 0)
 
-	love.graphics.setColor(255, 0, 0)
+	love.graphics.setColor(0, 0, 0)
 	love.graphics.print("FPS: "..tostring(love.timer.getFPS()).."\n"..
 											"X: "..tostring(camera.x).."\n"..
 											"Y: "..tostring(camera.y), 10, 10)
