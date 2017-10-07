@@ -43,6 +43,10 @@ function rayCast(line, x1, y1, x2, y2, d)
 										  -- also the highest thing we've drawn to prevent over-paint (0 is max height)
 	local z3 = ymin+1     -- projected Z height of point under consideration
 	local data, h
+	local pr=0
+	local pg=0
+	local pb=0
+
 	-- we draw from near to far
 	for i = 1,VIEW_DISTANCE do
 		-- step to next position, wrapped for out-of-bounds
@@ -68,14 +72,26 @@ function rayCast(line, x1, y1, x2, y2, d)
 			local g = bit.rshift(bit.band(data, 0x00FF0000), 16)
 			local b = bit.rshift(bit.band(data, 0x0000FF00), 8)
 
-			for k = ir,iz do
-				imageData:setPixel(k, line, r, g, b, 255)
-				imageData:setPixel(k, line+1, r, g, b, 255)
+			if (ir+1<iz) then -- large textels, interpolate for smoothness
+				-- get the next color, interpolate between that and the previous
+				local pc = iz - ir
+				local sr = (r - pr)/pc
+				local sg = (g - pg)/pc
+				local sb = (b - pb)/pc
+				for k = iz,ir,-1 do
+					pr = pr + sr
+					pg = pg + sg
+					pb = pb + sb
+					imageData:setPixel(k, line, pr, pg, pb, 255)
+					imageData:setPixel(k, line+1, pr, pg, pb, 255)
+				end
+			else -- small textels. Could supersample for quality?
+				imageData:setPixel(ir, line, r, g, b, 255)
+				imageData:setPixel(ir, line+1, r, g, b, 255)
 			end
+			pr=r;pg=g;pb=b; -- copy previous colors
 		end
-		if ymin > z3 then -- advance draw start (when the last draw ended)
-			ymin = z3
-		end
+		ymin = math.min(ymin, math.floor(z3))
 		if (ymin < 1) then return end -- early exit: the screen is full
 	end
 end
