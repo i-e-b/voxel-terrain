@@ -6,7 +6,9 @@ MIN_HEIGHT = 10
 MAX_PITCH = -200
 MIN_PITCH = 100
 
-depth = 400
+VIEW_DISTANCE = 700 -- how far to draw. More is slower but you can see further
+
+depth = 400 -- steepness of slopes. Lower numbers = taller mountains
 
 camera = { -- init player camera
 	x = 512,
@@ -28,48 +30,50 @@ function rayCast(line, x1, y1, x2, y2, d)
 	-- distance between start and end point
 	local r = math.floor(math.sqrt(dx * dx + dy * dy))
 
+	local dp = math.abs(d) / 100
+	local persp = 0
+
 	-- calculate stepsize in x and y direction
 	dx = dx / r
 	dy = dy / r
 
-	-- used for occlusion
-	local ymin = 300
+	local ymin = height -- last place we ended drawing a vertical line
+										  -- also the highest thing we've drawn to prevent over-paint (0 is max height)
 
-	-- we draw from the front to the back
-	for i = 1,r do
-		x1 = x1 + dx
-		y1 = y1 + dy
-		-- mirror/wrap our coordinates in case we're oob
-		if x1 < 0 then x1 = -x1 end
-		if x1 >= mapWidth then x1 = x1 - mapWidth end
-		if y1 < 0 then y1 = y1 + (1 + math.floor(-y1 / mapHeight)) * mapHeight end
-		if y1 >= mapHeight then y1 = y1 - mapHeight end
+	-- we draw from near to far
+	for i = 1,VIEW_DISTANCE do
+		-- step to next position, wrapped for out-of-bounds
+		x1 = (x1 + dx) % mapWidth
+		y1 = (y1 + dy) % mapHeight
 
-		-- get height and color
+		-- get height
 		local data = map[math.floor(x1)][math.floor(y1)]
-		local r = bit.rshift(bit.band(data, 0xFF000000), 24)
-		local g = bit.rshift(bit.band(data, 0x00FF0000), 16)
-		local b = bit.rshift(bit.band(data, 0x0000FF00), 8)
-		local h = bit.band(data, 0x000000FF)
-		h = camera.height - h
+		if (data == nil) then data = 0 end
+		local h = camera.height - bit.band(data, 0x000000FF)
 
 		-- perspective calculation where d is the correction parameter
-		local y3 = math.abs(d) * i
-		local z3 = math.floor(h / y3 * 100 - camera.v)
+		persp = persp + dp
+		local z3 = math.floor(h / persp - camera.v)
 
-		-- draw vertical line
-		if z3 < 0 then z3 = 0 end
+		if (z3 < ymin) then -- this position is visible (if you wanted to mark visible/invisible positions you could do it here)
+			-- write verical strip, limited to buffer bounds
+			local ir = math.min(height-1, math.max(0,z3))
+			local iz = math.min(height-1, ymin)
 
-		if z3 < height - 1 and ymin < height - 1 then
-			for k = z3,ymin do
+			-- read color from image
+			local r = bit.rshift(bit.band(data, 0xFF000000), 24)
+			local g = bit.rshift(bit.band(data, 0x00FF0000), 16)
+			local b = bit.rshift(bit.band(data, 0x0000FF00), 8)
+
+			for k = ir,iz do
 				imageData:setPixel(k, line, r, g, b, 255)
 				imageData:setPixel(k, line+1, r, g, b, 255)
-		  end
+			end
 		end
-
-		if ymin > z3 then
+		if ymin > z3 then -- advance draw start (when the last draw ended)
 			ymin = z3
 		end
+		if (ymin < 1) then return end -- early exit: the screen is full
 	end
 end
 
@@ -88,14 +92,14 @@ function loadMap(index)
 			map[x][y] = bit.bor(bit.lshift(r, 24), bit.bor(bit.lshift(g, 16), bit.bor(bit.lshift(b, 8), h)))
 		end
 	end
-    mapWidth = mapData:getWidth()
-    mapHeight = mapData:getHeight()
-    height = imageData:getWidth()
+	mapWidth = mapData:getWidth()
+	mapHeight = mapData:getHeight()
+	height = imageData:getWidth()
 end
 
 function love.load()
 	love.window.setTitle("Voxel Terrain")
-	love.mouse.setVisible(false)
+	--love.mouse.setVisible(false)
 
 	hud = love.graphics.newImage("hud.png")
 	sky = love.image.newImageData("sky.png")
@@ -143,18 +147,16 @@ function love.update(dt)
 end
 
 function love.draw()
-	--love.graphics.clear(133, 183, 214, 0)
 
 	-- copy the sky into the terrain image buffer
 	imageData:paste(sky, 0, 0, 0, 0, sky:getWidth(), sky:getHeight())
-	--imageData:paste(sky, 0, sky:getHeight(), 0, 0, sky:getWidth(), sky:getHeight())
 
 	-- draw terrain
 	local sinAngle = math.sin(camera.angle)
 	local cosAngle = math.cos(camera.angle)
 
 	local y3d = -depth * 1.5
-	for i = 0,imageData:getHeight() - 2,2 do
+	for i = 1,imageData:getHeight() - 2,2 do
 		local x3d = (i - imageData:getHeight() / 2) * 1.5 * 1.5
 
 		local rotX =  cosAngle * x3d + sinAngle * y3d
@@ -167,15 +169,15 @@ function love.draw()
 	else bufferImage:refresh() end
 
 	love.graphics.draw(bufferImage, 0, 0, math.pi / 2,
-		(512 / bufferImage:getWidth()),
-		-(love.graphics.getWidth() / bufferImage:getHeight()))
+	(512 / bufferImage:getWidth()),
+	-(love.graphics.getWidth() / bufferImage:getHeight()))
 
 	-- draw hud and altimeter
 	--love.graphics.draw(hud, 0, 0)
 
-	love.graphics.setColor(0, 0, 0)
+	love.graphics.setColor(0, 120, 120)
 	love.graphics.print("FPS: "..tostring(love.timer.getFPS()).."\n"..
-											"X: "..tostring(camera.x).."\n"..
-											"Y: "..tostring(camera.y), 10, 10)
+	"X: "..tostring(camera.x).."\n"..
+	"Y: "..tostring(camera.y), 10, 10)
 	love.graphics.setColor(255, 255, 255)
 end
