@@ -1,7 +1,7 @@
 -- Copyright (C) 2017 Robert B. Colton
 -- The Pennsylvania State University
 
-MAX_HEIGHT = 300
+MAX_HEIGHT = 400
 MIN_HEIGHT = 10
 MAX_PITCH = -200
 MIN_PITCH = 100
@@ -12,11 +12,15 @@ PIXEL_SCALE = 2 -- Resolution reduction. Higher number is faster, lower is bette
 PIXEL_WIDTH = love.graphics.getWidth() / PIXEL_SCALE
 PIXEL_HEIGHT = love.graphics.getHeight() / PIXEL_SCALE
 
+local doJitter = true
+local doFog = true
+local doSmoothing = true
+
 local mapIndex = 1
 local ctrlLock = 0
 local map = {}
 local heights = {}
-depth = love.graphics.getHeight() -- steepness of slopes. Lower numbers = taller mountains
+depth = love.graphics.getHeight() * 0.5 -- steepness of slopes. Lower numbers = taller mountains
 
 camera = { -- init player camera
 	x = 512,
@@ -30,7 +34,7 @@ local mapWidth
 local mapHeight
 local height
 
-function rayCast(line, x1, y1, x2, y2, d, scan)
+function rayCast(line, x1, y1, x2, y2, d, xDir)
 	-- x1, y1, x2, y2 are the start and end points on map for ray
 	local dx = x2 - x1
 	local dy = y2 - y1
@@ -55,6 +59,11 @@ function rayCast(line, x1, y1, x2, y2, d, scan)
 	local gap = 1 -- marks when we should break slope colour interpolation
 	local hbound = height - 1
 
+	local sw = sky:getWidth() - 1
+	local sh = sky:getHeight() - 1
+	local sx = -xDir*PIXEL_SCALE*(PIXEL_WIDTH / math.pi)
+
+	-- MAIN LOOP
 	-- we draw from near to far
 	for i = 1,VIEW_DISTANCE do
 		-- step to next position, wrapped for out-of-bounds
@@ -81,27 +90,51 @@ function rayCast(line, x1, y1, x2, y2, d, scan)
 			local g = bit.rshift(bit.band(data, 0x0000FF00), 8)
 		  local b = bit.band(data, 0x000000FF)
 
+			-- fog effect
+			local dlimit = i / VIEW_DISTANCE
+			if (doFog) then
+				if (dlimit > 0.7) then -- near the fog limit
+					local sr,sg,sb = sky:getPixel((sx + line) % sw, ir % sh) -- read background behind
+					local fo = math.pow((i / VIEW_DISTANCE),10) -- fog blend 0..1
+					local fs = 1 - fo -- landscape blend 1..0
+					r = (r * fs) + (fo * sr)
+					g = (g * fs) + (fo * sg)
+					b = (b * fs) + (fo * sb)
+					pr=r;pg=g;pb=b;
+				end
+			end
+
+
 			if (gap > 0) then pr=r;pg=g;pb=b; end -- no prev colors
 			if (ir+1 < iz) then -- large textels, interpolate for smoothness
 				-- get the next color, interpolate between that and the previous
 
-				-- pull more samples to blend
-				data = map[math.ceil(x1+0.5)][math.ceil(y1+0.5)]
-				r = (r + bit.rshift(bit.band(data, 0x00FF0000), 16)) / 2
-				g = (g + bit.rshift(bit.band(data, 0x0000FF00), 8)) / 2
-			  b = (b + bit.band(data, 0x000000FF)) / 2
-
-				local pc = (iz - ir) * 1.5 -- slight bleed between samples
-				local sr = (r - pr)/pc
-				local sg = (g - pg)/pc
-				local sb = (b - pb)/pc
-				for k = iz,ir,-1 do
-					pr = pr + sr
-					pg = pg + sg
-					pb = pb + sb
-					imageData:setPixel(k, line, pr, pg, pb, 255)
+				-- Jitter samples to make smoothing look better (otherwise orthagonal directions look stripey)
+				if (doJitter) and (dlimit<0.7) then -- don't jitter if drawing fog
+					-- pull nearby sample to blend
+					data = map[math.ceil(x1+0.5)][math.ceil(y1+0.5)]
+					r = (r + bit.rshift(bit.band(data, 0x00FF0000), 16)) / 2
+					g = (g + bit.rshift(bit.band(data, 0x0000FF00), 8)) / 2
+				  b = (b + bit.band(data, 0x000000FF)) / 2 --]]
 				end
-					--pr=r;pg=g;pb=b; -- copy previous colors
+
+				if (doSmoothing) then
+					local pc = (iz - ir) * 1.5 -- slight bleed between samples
+					local sr = (r - pr)/pc
+					local sg = (g - pg)/pc
+					local sb = (b - pb)/pc
+					for k = iz,ir,-1 do
+						pr = pr + sr
+						pg = pg + sg
+						pb = pb + sb
+						imageData:setPixel(k, line, pr, pg, pb, 255)
+					end
+				else -- no smoothing, just fill in with sample color
+					for k = iz,ir,-1 do
+						imageData:setPixel(k, line, r, g, b, 255)
+					end
+				end
+
 			else -- small textels. Could supersample for quality?
 				pr=r;pg=g;pb=b; -- copy previous colors
 				imageData:setPixel(ir, line, r, g, b, 255)
@@ -113,6 +146,12 @@ function rayCast(line, x1, y1, x2, y2, d, scan)
 		ymin = math.min(ymin, math.floor(z3))
 		if (ymin < 1) then return end -- early exit: the screen is full
 	end
+
+	-- now if we didn't get to the top of the screen, fill in with sky
+	for i=ymin,1,-1 do
+		local sr,sg,sb = sky:getPixel((sx + line) % sw, i % sh)
+		imageData:setPixel(i % height, line, sr,sg,sb)
+	end
 end
 
 function loadMap(index)
@@ -123,14 +162,14 @@ function loadMap(index)
 	heights = {}
 	local iw = mapData:getWidth()
 	local ih = mapData:getHeight()
-	for x = 0,iw+1 do
+	for x = 0,iw+1 do -- we overscan slightly to remove some bounds checks from the rayCast function
 		map[x] = {}
 		heights[x] = {}
 		for y = 0,ih+1 do
-			local r,g,b = mapData:getPixel(x%iw, y%ih)
+			local r,g,b = mapData:getPixel(x % iw, y % ih)
 			-- since the heightmap is black/white the r,g,b values of every pixel will be equal
 			-- and between 0 and 255 so we can just use the first red value to interpret the height
-			local h = heightData:getPixel(x%iw, y%ih)
+			local h = heightData:getPixel(x % iw, y % ih)
 			-- mapping to a single number, needs bitwise unpacking later
 			map[x][y] = bit.bor(bit.lshift(r, 16), bit.bor(bit.lshift(g, 8), b))
 			heights[x][y] = h
@@ -159,6 +198,7 @@ function love.keyreleased(key)
 end
 
 function love.update(dt)
+	-- camera controls
 	if love.keyboard.isDown("a") then
 		camera.angle = camera.angle + 0.05
 	end
@@ -185,36 +225,56 @@ function love.update(dt)
 	if love.keyboard.isDown("down") and camera.v > MAX_PITCH then
 		camera.v = camera.v - 2
 	end
-	if love.keyboard.isDown("return") and ctrlLock <1 then
-		mapIndex = mapIndex + 1
-		if (mapIndex > 4) then mapIndex = 1 end
-		loadMap(mapIndex)
-		ctrlLock = 1
-	else
-		ctrlLock = 0
+
+	-- UI toggles (rate limited)
+	local latchCount = 0
+	if love.keyboard.isDown("return") then
+		latchCount = latchCount + 1
+		if (ctrlLock < 1) then
+			ctrlLock = 1
+			mapIndex = mapIndex + 1
+			if (mapIndex > 4) then mapIndex = 1 end
+			loadMap(mapIndex)
+		end
 	end
+	if love.keyboard.isDown("j") then
+		latchCount = latchCount + 1
+		if (ctrlLock < 1) then
+			ctrlLock = 1
+			doJitter = not doJitter
+		end
+	end
+	if love.keyboard.isDown("f") then
+		latchCount = latchCount + 1
+		if (ctrlLock < 1) then
+			ctrlLock = 1
+			doFog = not doFog
+		end
+	end
+	if love.keyboard.isDown("m") then
+		latchCount = latchCount + 1
+		if (ctrlLock < 1) then
+			ctrlLock = 1
+			doSmoothing = not doSmoothing
+		end
+	end
+
+	if (latchCount < 1) then ctrlLock = 0 end
 end
 
 function love.draw()
-
-	-- copy the sky into the terrain image buffer (clears old terrain)
-	local sh = sky:getHeight()
-	for i=0,PIXEL_WIDTH, sh do
-		imageData:paste(sky, 0, i, 0, 0, sky:getWidth(), sky:getHeight())
-	end
-
 	-- draw terrain
 	local sinAngle = math.sin(camera.angle)
 	local cosAngle = math.cos(camera.angle)
 
 	local y3d = -depth * 1.5
-	for i = 1,imageData:getHeight() - 2,1 do
+	for i = 0,imageData:getHeight()-1,1 do
 		local x3d = (i - imageData:getHeight() / 2) * 1.5 * 1.5
 
 		local rotX =  cosAngle * x3d + sinAngle * y3d
 		local rotY = -sinAngle * x3d + cosAngle * y3d
 
-		rayCast(i, camera.x, camera.y, camera.x + rotX, camera.y + rotY, y3d / math.sqrt(x3d * x3d + y3d * y3d), i)
+		rayCast(i, camera.x, camera.y, camera.x + rotX, camera.y + rotY, y3d / math.sqrt(x3d * x3d + y3d * y3d), camera.angle)
 	end
 
 	if not bufferImage then bufferImage = love.graphics.newImage(imageData)
@@ -227,10 +287,12 @@ function love.draw()
 	-- draw hud and altimeter
 	--love.graphics.draw(hud, 0, 0)
 
-	love.graphics.setColor(0, 120, 120)
+	love.graphics.setColor(0, 0, 0)
 	love.graphics.print("Map: "..mapIndex.." FPS: "..tostring(love.timer.getFPS()).."\n"..
 	"X: "..tostring(camera.x).."\n"..
-	"Y: "..tostring(camera.y).."\n",
+	"Y: "..tostring(camera.y).."\n"..
+	"[J]itter: "..tostring(doJitter).."; [F]og: "..tostring(doFog)..
+	"; S[m]oothing: "..tostring(doSmoothing),
 	10, 10)
 	love.graphics.setColor(255, 255, 255)
 end
