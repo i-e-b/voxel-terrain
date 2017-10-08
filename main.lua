@@ -15,6 +15,7 @@ PIXEL_HEIGHT = love.graphics.getHeight() / PIXEL_SCALE
 local doJitter = true
 local doFog = true
 local doSmoothing = true
+local interlace = 0
 
 local mapIndex = 1
 local ctrlLock = 0
@@ -268,7 +269,7 @@ function love.draw()
 	local cosAngle = math.cos(camera.angle)
 
 	local y3d = -depth * 1.5
-	for i = 0,imageData:getHeight()-1,1 do
+	for i = interlace,imageData:getHeight()-1,2 do
 		local x3d = (i - imageData:getHeight() / 2) * 1.5 * 1.5
 
 		local rotX =  cosAngle * x3d + sinAngle * y3d
@@ -276,6 +277,8 @@ function love.draw()
 
 		rayCast(i, camera.x, camera.y, camera.x + rotX, camera.y + rotY, y3d / math.sqrt(x3d * x3d + y3d * y3d), camera.angle)
 	end
+
+	interlace = 1 - interlace
 
 	if not bufferImage then bufferImage = love.graphics.newImage(imageData)
 	else bufferImage:refresh() end
