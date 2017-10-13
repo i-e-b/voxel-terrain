@@ -31,6 +31,9 @@ camera = { -- init player camera
 	v = -100
 }
 
+
+local mapData
+local heightData
 local mapWidth
 local mapHeight
 local height
@@ -64,6 +67,12 @@ function rayCast(line, x1, y1, x2, y2, d, xDir)
 	local sh = sky:getHeight() - 1
 	local sx = -xDir*PIXEL_SCALE*(PIXEL_WIDTH / math.pi)
 
+	-- fog parameters
+	local dlimit = VIEW_DISTANCE * 0.7
+	local dfog = 1 / (VIEW_DISTANCE * 0.3)
+	local fo = 0
+	local fs = 1
+
 	-- MAIN LOOP
 	-- we draw from near to far
 	for i = 1,VIEW_DISTANCE do
@@ -80,6 +89,12 @@ function rayCast(line, x1, y1, x2, y2, d, xDir)
 		persp = persp + dp
 		z3 = math.floor(h / persp - camera.v)
 
+
+		if (i > dlimit) then -- near the fog limit
+			fs = fs - dfog -- advance the fog blend by distance
+			fo = fo + dfog
+		end
+
 		if (z3 < ymin) then -- this position is visible (if you wanted to mark visible/invisible positions you could do it here)
 			-- write verical strip, limited to buffer bounds
 			local ir = math.min(hbound, math.max(0,z3))
@@ -92,17 +107,12 @@ function rayCast(line, x1, y1, x2, y2, d, xDir)
 		  local b = bit.band(data, 0x000000FF)
 
 			-- fog effect
-			local dlimit = i / VIEW_DISTANCE
-			if (doFog) then
-				if (dlimit > 0.7) then -- near the fog limit
-					local sr,sg,sb = sky:getPixel((sx + line) % sw, ir % sh) -- read background behind
-					local fo = math.pow((i / VIEW_DISTANCE),10) -- fog blend 0..1
-					local fs = 1 - fo -- landscape blend 1..0
-					r = (r * fs) + (fo * sr)
-					g = (g * fs) + (fo * sg)
-					b = (b * fs) + (fo * sb)
-					pr=r;pg=g;pb=b;
-				end
+			if (doFog) and (i > dlimit) then -- near the fog limit
+				local sr,sg,sb = sky:getPixel((sx + line) % sw, ir % sh) -- read background behind
+				r = (r * fs) + (fo * sr)
+				g = (g * fs) + (fo * sg)
+				b = (b * fs) + (fo * sb)
+				pr=r;pg=g;pb=b;
 			end
 
 
@@ -111,7 +121,7 @@ function rayCast(line, x1, y1, x2, y2, d, xDir)
 				-- get the next color, interpolate between that and the previous
 
 				-- Jitter samples to make smoothing look better (otherwise orthagonal directions look stripey)
-				if (doJitter) and (dlimit<0.7) then -- don't jitter if drawing fog
+				if (doJitter) and (i < dlimit) then -- don't jitter if drawing fog
 					-- pull nearby sample to blend
 					data = map[math.ceil(x1+0.5)][math.ceil(y1+0.5)]
 					r = (r + bit.rshift(bit.band(data, 0x00FF0000), 16)) / 2
@@ -157,8 +167,8 @@ end
 
 function loadMap(index)
 	-- combine height and color data
-	local mapData = love.image.newImageData("maps/C" .. tostring(index) .. "W.png")
-	local heightData = love.image.newImageData("maps/C" .. tostring(index) .. "D.png")
+	mapData = love.image.newImageData("maps/C" .. tostring(index) .. "W.png")
+	heightData = love.image.newImageData("maps/C" .. tostring(index) .. "D.png")
 	map = {}
 	heights = {}
 	local iw = mapData:getWidth()
